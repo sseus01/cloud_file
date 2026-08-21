@@ -83,6 +83,9 @@ jobs:
           if (-not $blueprint) { throw "Could not locate the Nextcloud Craft blueprint." }
 
           $content = Get-Content $blueprint.FullName -Raw
+          if ($content -notmatch '(?m)^import os\s*$') {
+            $content = "import os`r`n" + $content
+          }
           $content = $content.Replace('self.defines["appname"] = "nextcloud"', 'self.defines["appname"] = "yeji-docs"')
           $content = $content.Replace('self.defines["company"] = "Nextcloud GmbH"', 'self.defines["company"] = "YEJI SOLUTION"')
           $content = $content.Replace('self.applicationExecutable = "nextcloud"', 'self.applicationExecutable = "yeji-docs"')
