@@ -30,6 +30,11 @@ jobs:
           if (-not (Test-Path "${{ env.SOURCE_DIR }}\NEXTCLOUD.cmake")) {
             throw "The branded source archive is invalid."
           }
+          # ZIP timestamps have no timezone. Normalize them so Ninja does not
+          # interpret Korean-local timestamps as files from the future.
+          $stableTime = (Get-Date).AddMinutes(-5)
+          Get-ChildItem -LiteralPath "${{ env.SOURCE_DIR }}" -Recurse -Force |
+            ForEach-Object { $_.LastWriteTime = $stableTime }
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
