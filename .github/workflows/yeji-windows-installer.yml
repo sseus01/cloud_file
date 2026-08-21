@@ -37,6 +37,11 @@ jobs:
             'set( APPLICATION_UPDATE_URL "" CACHE STRING "URL for updater" )',
             'set( APPLICATION_UPDATE_URL "https://docs.ye-ji.com" CACHE STRING "URL for updater" )'
           ) | Set-Content -LiteralPath $brandFile -Encoding utf8NoBOM
+          $cmakeFile = Join-Path "${{ env.SOURCE_DIR }}" "CMakeLists.txt"
+          (Get-Content -LiteralPath $cmakeFile -Raw).Replace(
+            'option(BUILD_TESTING "BUILD_TESTING" ON)',
+            'option(BUILD_TESTING "BUILD_TESTING" OFF)'
+          ) | Set-Content -LiteralPath $cmakeFile -Encoding utf8NoBOM
           # ZIP timestamps have no timezone. Normalize them so Ninja does not
           # interpret Korean-local timestamps as files from the future.
           $stableTime = (Get-Date).AddMinutes(-5)
@@ -119,6 +124,9 @@ jobs:
             Select-Object -First 1
           if (-not $wixDir) { throw "WiX Toolset v3 was not found." }
           $env:WIX = $wixDir.FullName
+          # Hosted runners do not include uuidgen. Preserve a generated
+          # ProductCode for make-msi.bat when its uuidgen loop returns nothing.
+          $env:PRODUCTCODE = ([guid]::NewGuid().ToString("B").ToUpperInvariant())
 
           Push-Location $makeMsi.Directory.FullName
           & $makeMsi.FullName $archive.FullName
