@@ -30,6 +30,13 @@ jobs:
           if (-not (Test-Path "${{ env.SOURCE_DIR }}\NEXTCLOUD.cmake")) {
             throw "The branded source archive is invalid."
           }
+          # Theme code still references this constant even when the updater is
+          # disabled. Keep updates disabled, but provide the compile-time URL.
+          $brandFile = Join-Path "${{ env.SOURCE_DIR }}" "NEXTCLOUD.cmake"
+          (Get-Content -LiteralPath $brandFile -Raw).Replace(
+            'set( APPLICATION_UPDATE_URL "" CACHE STRING "URL for updater" )',
+            'set( APPLICATION_UPDATE_URL "https://docs.ye-ji.com" CACHE STRING "URL for updater" )'
+          ) | Set-Content -LiteralPath $brandFile -Encoding utf8NoBOM
           # ZIP timestamps have no timezone. Normalize them so Ninja does not
           # interpret Korean-local timestamps as files from the future.
           $stableTime = (Get-Date).AddMinutes(-5)
