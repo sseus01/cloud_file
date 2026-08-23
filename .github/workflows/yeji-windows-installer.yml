@@ -117,43 +117,20 @@ jobs:
           python "${{ env.CRAFT_MASTER_LOCATION }}\CraftMaster.py" --config "${{ env.CRAFT_MASTER_CONFIG }}" --target ${{ env.CRAFT_TARGET }} -c --src-dir "${{ env.SOURCE_DIR }}" --package nextcloud-client
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build MSI installer
+      - name: Collect Windows EXE installer
         shell: pwsh
         run: |
           $root = "${{ github.workspace }}\${{ env.CRAFT_TARGET }}"
-          $archive = Get-ChildItem $root -Directory -Recurse |
-            Where-Object { $_.Name -eq 'archive' -and (Test-Path (Join-Path $_.FullName 'bin\yeji-docs.exe')) } |
-            Select-Object -First 1
-          if (-not $archive) { throw "Could not locate the packaged application image." }
-
-          $makeMsi = Get-ChildItem $root -Recurse -Filter make-msi.bat |
-            Where-Object { Test-Path (Join-Path $_.Directory.FullName 'Nextcloud.wxs') } |
-            Select-Object -First 1
-          if (-not $makeMsi) { throw "Could not locate the generated MSI scripts." }
-
-          $wixDir = Get-ChildItem ${env:ProgramFiles(x86)} -Directory -Filter 'WiX Toolset v3*' |
-            Sort-Object Name -Descending |
-            Select-Object -First 1
-          if (-not $wixDir) { throw "WiX Toolset v3 was not found." }
-          $env:WIX = $wixDir.FullName
-          # Hosted runners do not include uuidgen. Preserve a generated
-          # ProductCode for make-msi.bat when its uuidgen loop returns nothing.
-          $env:PRODUCTCODE = ([guid]::NewGuid().ToString("B").ToUpperInvariant())
-
-          Push-Location $makeMsi.Directory.FullName
-          & $makeMsi.FullName $archive.FullName
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Pop-Location
-
           New-Item -ItemType Directory -Force "${{ github.workspace }}\dist" | Out-Null
-          $msi = Get-ChildItem $makeMsi.Directory.FullName -Filter '*.msi' |
+          $installer = Get-ChildItem (Join-Path $root 'tmp') -Filter '*.exe' |
+            Where-Object { $_.Name -match 'nextcloud-client.*windows.*x86_64' } |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
-          if (-not $msi) { throw "MSI output was not created." }
-          Copy-Item $msi.FullName "${{ github.workspace }}\dist\YEJI-Solution-Setup-x64.msi"
+          if (-not $installer) { throw "Windows EXE installer was not created." }
+          Copy-Item $installer.FullName "${{ github.workspace }}\dist\YEJI-Solution-Setup-x64.exe"
 
       - uses: actions/upload-artifact@v4
         with:
           name: YEJI-Solution-Windows-x64
-          path: dist/YEJI-Solution-Setup-x64.msi
+          path: dist/YEJI-Solution-Setup-x64.exe
           if-no-files-found: error
