@@ -50,6 +50,23 @@ jobs:
             'option(BUILD_TESTING "BUILD_TESTING" ON)',
             'option(BUILD_TESTING "BUILD_TESTING" OFF)'
           ) | Set-Content -LiteralPath $cmakeFile -Encoding utf8NoBOM
+          # The Craft package does not enable the optional NSIS finish-page
+          # launcher. Start the client after a successful interactive install
+          # so that the account login window appears immediately.
+          $nsisFile = Join-Path "${{ env.SOURCE_DIR }}" "cmake\modules\NSIS.template.in"
+          $nsisContent = Get-Content -LiteralPath $nsisFile -Raw
+          $successHook = 'Function .onInstSuccess'
+          $autoLaunchHook = @'
+Function .onInstSuccess
+   ${IfNot} ${Silent}
+      Call LaunchApplication
+   ${EndIf}
+'@
+          if (-not $nsisContent.Contains($successHook)) {
+            throw "Could not locate the NSIS installation success hook."
+          }
+          $nsisContent.Replace($successHook, $autoLaunchHook.TrimEnd()) |
+            Set-Content -LiteralPath $nsisFile -Encoding utf8NoBOM
           # ZIP timestamps have no timezone. Normalize them so Ninja does not
           # interpret Korean-local timestamps as files from the future.
           $stableTime = (Get-Date).AddMinutes(-5)
