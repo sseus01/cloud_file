@@ -127,15 +127,33 @@ jobs:
           $desktopShortcut = @(
             '@{shortcuts}'
             'Section "Desktop shortcut"'
+            '  ; Remove shortcuts and autostart entries left by an existing official Nextcloud installation.'
+            '  SetShellVarContext current'
+            '  Delete "$DESKTOP\Nextcloud.lnk"'
+            '  RMDir /r "$SMPROGRAMS\Nextcloud"'
+            '  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Nextcloud"'
+            '  SetShellVarContext all'
+            '  Delete "$DESKTOP\Nextcloud.lnk"'
+            '  RMDir /r "$SMPROGRAMS\Nextcloud"'
             '  SetShellVarContext current'
             '  CreateShortCut "$DESKTOP\@{productname}.lnk" "$INSTDIR\@{launchExecutable}"'
             'SectionEnd'
           ) -join "`r`n"
           $templateContent = $templateContent.Replace('@{shortcuts}', $desktopShortcut)
+          $uninstallShortcuts = @(
+            'SetShellVarContext current'
+            'Delete "$DESKTOP\@{productname}.lnk"'
+            'SetShellVarContext all'
+            'Delete "$DESKTOP\@{productname}.lnk"'
+            'SetShellVarContext current'
+            '@{uninstallFiles}'
+          ) -join "`r`n"
+          $templateContent = $templateContent.Replace('@{uninstallFiles}', $uninstallShortcuts)
           if (-not $templateContent.Contains('MUI_FINISHPAGE_RUN "$INSTDIR\@{launchExecutable}"')) {
             throw "Could not add the finish-page launcher."
           }
           if (-not $templateContent.Contains('$DESKTOP\@{productname}.lnk')) { throw "Could not add the desktop shortcut." }
+          if (-not $templateContent.Contains('Delete "$DESKTOP\Nextcloud.lnk"')) { throw "Could not add legacy shortcut cleanup." }
           # Craft writes the configured NSIS script as UTF-8. Keep a BOM in
           # the source template so makensis detects Korean text as Unicode.
           [System.IO.File]::WriteAllText(
