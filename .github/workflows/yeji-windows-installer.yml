@@ -136,7 +136,13 @@ jobs:
             throw "Could not add the finish-page launcher."
           }
           if (-not $templateContent.Contains('$DESKTOP\@{productname}.lnk')) { throw "Could not add the desktop shortcut." }
-          Set-Content $nsisTemplate $templateContent -Encoding utf8
+          # Craft writes the configured NSIS script as UTF-8. Keep a BOM in
+          # the source template so makensis detects Korean text as Unicode.
+          [System.IO.File]::WriteAllText(
+            $nsisTemplate,
+            $templateContent,
+            [System.Text.UTF8Encoding]::new($true)
+          )
 
           $env:PATH = "C:\Program Files (x86)\NSIS;$env:PATH"
           python "${{ env.CRAFT_MASTER_LOCATION }}\CraftMaster.py" --config "${{ env.CRAFT_MASTER_CONFIG }}" --target ${{ env.CRAFT_TARGET }} -c --src-dir "${{ env.SOURCE_DIR }}" --package nextcloud-client
