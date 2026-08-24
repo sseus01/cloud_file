@@ -33,7 +33,15 @@ jobs:
           # Theme code still references this constant even when the updater is
           # disabled. Keep updates disabled, but provide the compile-time URL.
           $brandFile = Join-Path "${{ env.SOURCE_DIR }}" "NEXTCLOUD.cmake"
-          (Get-Content -LiteralPath $brandFile -Raw).Replace(
+          $brandContent = Get-Content -LiteralPath $brandFile -Raw
+          $brandContent = $brandContent.Replace(
+            'set( APPLICATION_NAME       "예지솔루션" )',
+            'set( APPLICATION_NAME       "예지솔루션 문서함" )'
+          ).Replace(
+            'set( APPLICATION_EXECUTABLE "yeji-docs" )',
+            'set( APPLICATION_EXECUTABLE "nextcloud" )'
+          )
+          $brandContent.Replace(
             'set( APPLICATION_UPDATE_URL "" CACHE STRING "URL for updater" )',
             'set( APPLICATION_UPDATE_URL "https://docs.ye-ji.com" CACHE STRING "URL for updater" )'
           ) | Set-Content -LiteralPath $brandFile -Encoding utf8NoBOM
@@ -103,15 +111,7 @@ jobs:
           if ($content -notmatch '(?m)^import os\s*$') {
             $content = "import os`r`n" + $content
           }
-          $content = $content.Replace('self.defines["appname"] = "nextcloud"', 'self.defines["appname"] = "yeji-docs"')
-          $content = $content.Replace('self.defines["company"] = "Nextcloud GmbH"', 'self.defines["company"] = "YEJI SOLUTION"')
-          $content = $content.Replace('self.applicationExecutable = "nextcloud"', 'self.applicationExecutable = "yeji-docs"')
           Set-Content $blueprint.FullName $content -Encoding utf8
-
-          $blacklist = Join-Path $blueprint.Directory.FullName 'blacklist.txt'
-          $blacklistContent = Get-Content $blacklist -Raw
-          $blacklistContent = $blacklistContent.Replace('(?!(nextcloud|nextcloudcmd|QtWebEngineProcess))', '(?!(yeji-docs|nextcloudcmd|QtWebEngineProcess))')
-          Set-Content $blacklist $blacklistContent -Encoding utf8
 
           $env:PATH = "C:\Program Files (x86)\NSIS;$env:PATH"
           python "${{ env.CRAFT_MASTER_LOCATION }}\CraftMaster.py" --config "${{ env.CRAFT_MASTER_CONFIG }}" --target ${{ env.CRAFT_TARGET }} -c --src-dir "${{ env.SOURCE_DIR }}" --package nextcloud-client
