@@ -96,62 +96,47 @@ jobs:
           $blueprintNeedle = '        self.defines["company"] = "Nextcloud GmbH"'
           $blueprintReplacement = @(
             '        self.defines["company"] = "Nextcloud GmbH"'
-            '        self.defines["shortcutName"] = "예지솔루션 문서함"'
+            '        self.defines["productname"] = "예지솔루션 문서함"'
             '        self.defines["launchExecutable"] = r"bin\nextcloud.exe"'
+            '        self.scriptname = os.path.join(os.environ["GITHUB_WORKSPACE"], "craft-packager-source", "bin", "Packager", "Nsis", "NullsoftInstaller.nsi")'
           ) -join "`r`n"
           $content = $content.Replace($blueprintNeedle, $blueprintReplacement)
-          if (-not $content.Contains('self.defines["shortcutName"]')) {
-            throw "Could not configure the shortcut display name."
-          }
+          if (-not $content.Contains('self.defines["productname"] = "예지솔루션 문서함"')) { throw "Could not configure the display name." }
           Set-Content $blueprint.FullName $content -Encoding utf8
 
           # Craft's generic NSIS wrapper creates only a Start-menu shortcut and
           # has no finish-page launcher. Preserve the official executable/icon,
           # while adding the expected desktop shortcut and Run option.
-          $craftRoot = "${{ github.workspace }}\${{ env.CRAFT_TARGET }}"
-          $craftSearchRoots = @(
-            $craftRoot
-            "${{ env.CRAFT_MASTER_LOCATION }}"
-            $env:LOCALAPPDATA
-            'D:\_'
-          ) | Where-Object { $_ -and (Test-Path $_) }
-          $packagerFile = $craftSearchRoots |
-            ForEach-Object { Get-ChildItem $_ -Recurse -Filter NullsoftInstallerPackager.py -ErrorAction SilentlyContinue } |
-            Select-Object -First 1
-          $nsisTemplate = $craftSearchRoots |
-            ForEach-Object { Get-ChildItem $_ -Recurse -Filter NullsoftInstaller.nsi -ErrorAction SilentlyContinue } |
-            Select-Object -First 1
-          if (-not $packagerFile -or -not $nsisTemplate) {
-            throw "Could not locate the Craft NSIS packager."
-          }
-
-          $packagerContent = Get-Content $packagerFile.FullName -Raw
-          $packagerContent = $packagerContent.Replace(
-            'shortcuts.append(self._createShortcut(defines["productname"], defines["executable"]))',
-            'shortcuts.append(self._createShortcut(defines.get("shortcutName", defines["productname"]), defines["executable"]))'
+          $packagerSource = "${{ github.workspace }}\craft-packager-source"
+          git clone --quiet https://github.com/nextcloud/craft.git $packagerSource
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $packagerSource checkout --quiet 6d812696a6aa025dc3c545d8feb954f23be9446e
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $nsisTemplate = Join-Path $packagerSource "bin\Packager\Nsis\NullsoftInstaller.nsi"
+          $templateContent = Get-Content $nsisTemplate -Raw
+          $templateContent = $templateContent.Replace(
+            '!define MULTIUSER_INSTALLMODE_INSTDIR "@{productname}"',
+            '!define MULTIUSER_INSTALLMODE_INSTDIR "Nextcloud"'
           )
-          $shortcutNeedle = '        out += f''CreateShortCut "$SMPROGRAMS\$StartMenuFolder\{name}.lnk" "$INSTDIR\{OsUtils.toNativePath(target)}" "{parameter}" "{icon}" 0 SW_SHOWNORMAL "" "{description}"\n'''
-          $shortcutReplacement = @(
-            $shortcutNeedle
-            '        out += f''CreateShortCut "$DESKTOP\{name}.lnk" "$INSTDIR\{OsUtils.toNativePath(target)}" "{parameter}" "{icon}" 0 SW_SHOWNORMAL "" "{description}"\n'''
-          ) -join "`r`n"
-          $packagerContent = $packagerContent.Replace($shortcutNeedle, $shortcutReplacement)
-          if (-not $packagerContent.Contains('$DESKTOP\{name}.lnk')) {
-            throw "Could not add the desktop shortcut."
-          }
-          Set-Content $packagerFile.FullName $packagerContent -Encoding utf8
-
-          $templateContent = Get-Content $nsisTemplate.FullName -Raw
           $finishReplacement = @(
             '!define MUI_FINISHPAGE_RUN "$INSTDIR\@{launchExecutable}"'
-            '!define MUI_FINISHPAGE_RUN_TEXT "Run @{shortcutName}"'
+            '!define MUI_FINISHPAGE_RUN_TEXT "Run @{productname}"'
             '!insertmacro MUI_PAGE_FINISH'
           ) -join "`r`n"
           $templateContent = $templateContent.Replace('!insertmacro MUI_PAGE_FINISH', $finishReplacement)
+          $desktopShortcut = @(
+            '@{shortcuts}'
+            'Section "Desktop shortcut"'
+            '  SetShellVarContext current'
+            '  CreateShortCut "$DESKTOP\@{productname}.lnk" "$INSTDIR\@{launchExecutable}"'
+            'SectionEnd'
+          ) -join "`r`n"
+          $templateContent = $templateContent.Replace('@{shortcuts}', $desktopShortcut)
           if (-not $templateContent.Contains('MUI_FINISHPAGE_RUN "$INSTDIR\@{launchExecutable}"')) {
             throw "Could not add the finish-page launcher."
           }
-          Set-Content $nsisTemplate.FullName $templateContent -Encoding utf8
+          if (-not $templateContent.Contains('$DESKTOP\@{productname}.lnk')) { throw "Could not add the desktop shortcut." }
+          Set-Content $nsisTemplate $templateContent -Encoding utf8
 
           $env:PATH = "C:\Program Files (x86)\NSIS;$env:PATH"
           python "${{ env.CRAFT_MASTER_LOCATION }}\CraftMaster.py" --config "${{ env.CRAFT_MASTER_CONFIG }}" --target ${{ env.CRAFT_TARGET }} -c --src-dir "${{ env.SOURCE_DIR }}" --package nextcloud-client
