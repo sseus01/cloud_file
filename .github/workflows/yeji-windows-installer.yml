@@ -26,52 +26,17 @@ jobs:
       - name: Expand branded source
         shell: pwsh
         run: |
-          Expand-Archive -LiteralPath "${{ github.workspace }}\YEJI-Solution-Nextcloud-Client-Source-v34.0.1.zip" -DestinationPath "${{ env.SOURCE_DIR }}"
-          if (-not (Test-Path "${{ env.SOURCE_DIR }}\NEXTCLOUD.cmake")) {
-            throw "The branded source archive is invalid."
-          }
-          # Theme code still references this constant even when the updater is
-          # disabled. Keep updates disabled, but provide the compile-time URL.
+          git clone --quiet --depth=1 --branch v34.0.1 https://github.com/nextcloud/desktop.git "${{ env.SOURCE_DIR }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # Keep the official Nextcloud source and branding intact. Only the
+          # user-facing application name is changed.
           $brandFile = Join-Path "${{ env.SOURCE_DIR }}" "NEXTCLOUD.cmake"
           $brandContent = Get-Content -LiteralPath $brandFile -Raw
-          $brandContent = $brandContent.Replace(
-            'set( APPLICATION_NAME       "예지솔루션" )',
-            'set( APPLICATION_NAME       "예지솔루션 문서함" )'
-          ).Replace(
-            'set( APPLICATION_EXECUTABLE "yeji-docs" )',
-            'set( APPLICATION_EXECUTABLE "nextcloud" )'
-          )
           $brandContent.Replace(
-            'set( APPLICATION_UPDATE_URL "" CACHE STRING "URL for updater" )',
-            'set( APPLICATION_UPDATE_URL "https://docs.ye-ji.com" CACHE STRING "URL for updater" )'
+            'set( APPLICATION_NAME       "Nextcloud" )',
+            'set( APPLICATION_NAME       "예지솔루션 문서함" )'
           ) | Set-Content -LiteralPath $brandFile -Encoding utf8NoBOM
-          $cmakeFile = Join-Path "${{ env.SOURCE_DIR }}" "CMakeLists.txt"
-          (Get-Content -LiteralPath $cmakeFile -Raw).Replace(
-            'option(BUILD_TESTING "BUILD_TESTING" ON)',
-            'option(BUILD_TESTING "BUILD_TESTING" OFF)'
-          ) | Set-Content -LiteralPath $cmakeFile -Encoding utf8NoBOM
-          # The Craft package does not enable the optional NSIS finish-page
-          # launcher. Start the client after a successful interactive install
-          # so that the account login window appears immediately.
-          $nsisFile = Join-Path "${{ env.SOURCE_DIR }}" "cmake\modules\NSIS.template.in"
-          $nsisContent = Get-Content -LiteralPath $nsisFile -Raw
-          $successHook = 'Function .onInstSuccess'
-          $autoLaunchHook = @(
-            'Function .onInstSuccess'
-            '   ${IfNot} ${Silent}'
-            '      Call LaunchApplication'
-            '   ${EndIf}'
-          ) -join "`r`n"
-          if (-not $nsisContent.Contains($successHook)) {
-            throw "Could not locate the NSIS installation success hook."
-          }
-          $nsisContent.Replace($successHook, $autoLaunchHook.TrimEnd()) |
-            Set-Content -LiteralPath $nsisFile -Encoding utf8NoBOM
-          # ZIP timestamps have no timezone. Normalize them so Ninja does not
-          # interpret Korean-local timestamps as files from the future.
-          $stableTime = (Get-Date).AddMinutes(-5)
-          Get-ChildItem -LiteralPath "${{ env.SOURCE_DIR }}" -Recurse -Force |
-            ForEach-Object { $_.LastWriteTime = $stableTime }
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
@@ -128,7 +93,57 @@ jobs:
           if ($content -notmatch '(?m)^import os\s*$') {
             $content = "import os`r`n" + $content
           }
+          $blueprintNeedle = '        self.defines["company"] = "Nextcloud GmbH"'
+          $blueprintReplacement = @(
+            '        self.defines["company"] = "Nextcloud GmbH"'
+            '        self.defines["shortcutName"] = "예지솔루션 문서함"'
+            '        self.defines["launchExecutable"] = r"bin\nextcloud.exe"'
+          ) -join "`r`n"
+          $content = $content.Replace($blueprintNeedle, $blueprintReplacement)
+          if (-not $content.Contains('self.defines["shortcutName"]')) {
+            throw "Could not configure the shortcut display name."
+          }
           Set-Content $blueprint.FullName $content -Encoding utf8
+
+          # Craft's generic NSIS wrapper creates only a Start-menu shortcut and
+          # has no finish-page launcher. Preserve the official executable/icon,
+          # while adding the expected desktop shortcut and Run option.
+          $craftRoot = "${{ github.workspace }}\${{ env.CRAFT_TARGET }}"
+          $packagerFile = Get-ChildItem $craftRoot -Recurse -Filter NullsoftInstallerPackager.py |
+            Select-Object -First 1
+          $nsisTemplate = Get-ChildItem $craftRoot -Recurse -Filter NullsoftInstaller.nsi |
+            Select-Object -First 1
+          if (-not $packagerFile -or -not $nsisTemplate) {
+            throw "Could not locate the Craft NSIS packager."
+          }
+
+          $packagerContent = Get-Content $packagerFile.FullName -Raw
+          $packagerContent = $packagerContent.Replace(
+            'shortcuts.append(self._createShortcut(defines["productname"], defines["executable"]))',
+            'shortcuts.append(self._createShortcut(defines.get("shortcutName", defines["productname"]), defines["executable"]))'
+          )
+          $shortcutNeedle = '        out += f''CreateShortCut "$SMPROGRAMS\$StartMenuFolder\{name}.lnk" "$INSTDIR\{OsUtils.toNativePath(target)}" "{parameter}" "{icon}" 0 SW_SHOWNORMAL "" "{description}"\n'''
+          $shortcutReplacement = @(
+            $shortcutNeedle
+            '        out += f''CreateShortCut "$DESKTOP\{name}.lnk" "$INSTDIR\{OsUtils.toNativePath(target)}" "{parameter}" "{icon}" 0 SW_SHOWNORMAL "" "{description}"\n'''
+          ) -join "`r`n"
+          $packagerContent = $packagerContent.Replace($shortcutNeedle, $shortcutReplacement)
+          if (-not $packagerContent.Contains('$DESKTOP\{name}.lnk')) {
+            throw "Could not add the desktop shortcut."
+          }
+          Set-Content $packagerFile.FullName $packagerContent -Encoding utf8
+
+          $templateContent = Get-Content $nsisTemplate.FullName -Raw
+          $finishReplacement = @(
+            '!define MUI_FINISHPAGE_RUN "$INSTDIR\@{launchExecutable}"'
+            '!define MUI_FINISHPAGE_RUN_TEXT "Run @{shortcutName}"'
+            '!insertmacro MUI_PAGE_FINISH'
+          ) -join "`r`n"
+          $templateContent = $templateContent.Replace('!insertmacro MUI_PAGE_FINISH', $finishReplacement)
+          if (-not $templateContent.Contains('MUI_FINISHPAGE_RUN "$INSTDIR\@{launchExecutable}"')) {
+            throw "Could not add the finish-page launcher."
+          }
+          Set-Content $nsisTemplate.FullName $templateContent -Encoding utf8
 
           $env:PATH = "C:\Program Files (x86)\NSIS;$env:PATH"
           python "${{ env.CRAFT_MASTER_LOCATION }}\CraftMaster.py" --config "${{ env.CRAFT_MASTER_CONFIG }}" --target ${{ env.CRAFT_TARGET }} -c --src-dir "${{ env.SOURCE_DIR }}" --package nextcloud-client
