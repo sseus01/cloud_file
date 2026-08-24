@@ -26,17 +26,25 @@ jobs:
       - name: Expand branded source
         shell: pwsh
         run: |
-          git clone --quiet --depth=1 --branch v34.0.1 https://github.com/nextcloud/desktop.git "${{ env.SOURCE_DIR }}"
+          git clone --quiet --depth=1 --branch v34.0.2 https://github.com/nextcloud/desktop.git "${{ env.SOURCE_DIR }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Keep the official Nextcloud source and branding intact. Only the
           # user-facing application name is changed.
           $brandFile = Join-Path "${{ env.SOURCE_DIR }}" "NEXTCLOUD.cmake"
           $brandContent = Get-Content -LiteralPath $brandFile -Raw
-          $brandContent.Replace(
+          $brandContent = $brandContent.Replace(
             'set( APPLICATION_NAME       "Nextcloud" )',
             'set( APPLICATION_NAME       "예지솔루션 문서함" )'
-          ) | Set-Content -LiteralPath $brandFile -Encoding utf8NoBOM
+          )
+          $brandContent = $brandContent.Replace(
+            'option( BUILD_UPDATER "Build updater" ON )',
+            'option( BUILD_UPDATER "Build updater" OFF )'
+          )
+          if (-not $brandContent.Contains('option( BUILD_UPDATER "Build updater" OFF )')) {
+            throw "Could not disable the desktop client updater."
+          }
+          $brandContent | Set-Content -LiteralPath $brandFile -Encoding utf8NoBOM
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
