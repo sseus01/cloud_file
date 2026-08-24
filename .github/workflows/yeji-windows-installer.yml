@@ -149,11 +149,44 @@ jobs:
             '@{uninstallFiles}'
           ) -join "`r`n"
           $templateContent = $templateContent.Replace('@{uninstallFiles}', $uninstallShortcuts)
+          # Older official/previous MSI builds can leave a GUID-named entry in
+          # Windows "Installed apps". Remove only entries whose DisplayName is
+          # exactly "Nextcloud"; user configuration and synced files are not touched.
+          $legacyAppMacro = @(
+            '!macro RemoveLegacyNextcloudApp root view'
+            '  SetRegView ${view}'
+            '  StrCpy $0 0'
+            'legacy_nextcloud_loop_${root}_${view}:'
+            '  EnumRegKey $1 ${root} "Software\Microsoft\Windows\CurrentVersion\Uninstall" $0'
+            '  StrCmp $1 "" legacy_nextcloud_done_${root}_${view}'
+            '  ReadRegStr $2 ${root} "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1" "DisplayName"'
+            '  StrCmp $2 "Nextcloud" 0 legacy_nextcloud_next_${root}_${view}'
+            '  DeleteRegKey ${root} "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1"'
+            '  Goto legacy_nextcloud_loop_${root}_${view}'
+            'legacy_nextcloud_next_${root}_${view}:'
+            '  IntOp $0 $0 + 1'
+            '  Goto legacy_nextcloud_loop_${root}_${view}'
+            'legacy_nextcloud_done_${root}_${view}:'
+            '!macroend'
+            ''
+          ) -join "`r`n"
+          $templateContent = $templateContent.Replace('Function SnoreWinVer', $legacyAppMacro + 'Function SnoreWinVer')
+          $oldUninstaller = '  ExecWait ''"$MultiUser.InstDir\uninstall.exe" /S _?=$MultiUser.InstDir'''
+          $legacyAppCalls = @(
+            $oldUninstaller
+            '  !insertmacro RemoveLegacyNextcloudApp HKCU 64'
+            '  !insertmacro RemoveLegacyNextcloudApp HKLM 64'
+            '  !insertmacro RemoveLegacyNextcloudApp HKCU 32'
+            '  !insertmacro RemoveLegacyNextcloudApp HKLM 32'
+            '  SetRegView 64'
+          ) -join "`r`n"
+          $templateContent = $templateContent.Replace($oldUninstaller, $legacyAppCalls)
           if (-not $templateContent.Contains('MUI_FINISHPAGE_RUN "$INSTDIR\@{launchExecutable}"')) {
             throw "Could not add the finish-page launcher."
           }
           if (-not $templateContent.Contains('$DESKTOP\@{productname}.lnk')) { throw "Could not add the desktop shortcut." }
           if (-not $templateContent.Contains('Delete "$DESKTOP\Nextcloud.lnk"')) { throw "Could not add legacy shortcut cleanup." }
+          if (-not $templateContent.Contains('RemoveLegacyNextcloudApp HKLM 64')) { throw "Could not add legacy app cleanup." }
           # Craft writes the configured NSIS script as UTF-8. Keep a BOM in
           # the source template so makensis detects Korean text as Unicode.
           [System.IO.File]::WriteAllText(
