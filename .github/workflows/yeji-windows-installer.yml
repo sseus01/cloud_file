@@ -109,9 +109,17 @@ jobs:
           # has no finish-page launcher. Preserve the official executable/icon,
           # while adding the expected desktop shortcut and Run option.
           $craftRoot = "${{ github.workspace }}\${{ env.CRAFT_TARGET }}"
-          $packagerFile = Get-ChildItem $craftRoot -Recurse -Filter NullsoftInstallerPackager.py |
+          $craftSearchRoots = @(
+            $craftRoot
+            "${{ env.CRAFT_MASTER_LOCATION }}"
+            $env:LOCALAPPDATA
+            'D:\_'
+          ) | Where-Object { $_ -and (Test-Path $_) }
+          $packagerFile = $craftSearchRoots |
+            ForEach-Object { Get-ChildItem $_ -Recurse -Filter NullsoftInstallerPackager.py -ErrorAction SilentlyContinue } |
             Select-Object -First 1
-          $nsisTemplate = Get-ChildItem $craftRoot -Recurse -Filter NullsoftInstaller.nsi |
+          $nsisTemplate = $craftSearchRoots |
+            ForEach-Object { Get-ChildItem $_ -Recurse -Filter NullsoftInstaller.nsi -ErrorAction SilentlyContinue } |
             Select-Object -First 1
           if (-not $packagerFile -or -not $nsisTemplate) {
             throw "Could not locate the Craft NSIS packager."
