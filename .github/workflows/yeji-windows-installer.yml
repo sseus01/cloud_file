@@ -56,12 +56,12 @@ jobs:
           $nsisFile = Join-Path "${{ env.SOURCE_DIR }}" "cmake\modules\NSIS.template.in"
           $nsisContent = Get-Content -LiteralPath $nsisFile -Raw
           $successHook = 'Function .onInstSuccess'
-          $autoLaunchHook = @'
-Function .onInstSuccess
-   ${IfNot} ${Silent}
-      Call LaunchApplication
-   ${EndIf}
-'@
+          $autoLaunchHook = @(
+            'Function .onInstSuccess'
+            '   ${IfNot} ${Silent}'
+            '      Call LaunchApplication'
+            '   ${EndIf}'
+          ) -join "`r`n"
           if (-not $nsisContent.Contains($successHook)) {
             throw "Could not locate the NSIS installation success hook."
           }
