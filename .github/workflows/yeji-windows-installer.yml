@@ -46,6 +46,43 @@ jobs:
           }
           $brandContent | Set-Content -LiteralPath $brandFile -Encoding utf8NoBOM
 
+          # The application version can include a Craft build suffix while the
+          # VFS plugin metadata contains only x.y.z. Compare the numeric version
+          # so plugins produced by this same source build load correctly.
+          $vfsFile = Join-Path "${{ env.SOURCE_DIR }}" "src\common\vfs.cpp"
+          $vfsContent = Get-Content -LiteralPath $vfsFile -Raw
+          $vfsContent = $vfsContent.Replace(
+            '#include <QLoggingCategory>',
+            "#include <QLoggingCategory>`r`n#include <QVersionNumber>"
+          )
+          $versionCheckNeedle = @(
+            '    if (metadata[QStringLiteral("version")].toString() != QStringLiteral(MIRALL_VERSION_STRING)) {'
+            '        qCWarning(lcPlugin) << "Plugin has wrong version" << loader.fileName() << metadata[QStringLiteral("version")];'
+            '        return false;'
+            '    }'
+          ) -join "`n"
+          $versionCheckReplacement = @(
+            '    const auto pluginVersionString = metadata[QStringLiteral("version")].toString();'
+            '    const auto pluginVersion = QVersionNumber::fromString(pluginVersionString);'
+            '    const auto applicationVersion = QVersionNumber::fromString(QStringLiteral(MIRALL_VERSION_STRING));'
+            '    if (pluginVersion.isNull() || applicationVersion.isNull() || pluginVersion != applicationVersion) {'
+            '        qCWarning(lcPlugin) << "Plugin has wrong version" << loader.fileName() << pluginVersionString'
+            '                            << "expected" << QStringLiteral(MIRALL_VERSION_STRING);'
+            '        return false;'
+            '    }'
+          ) -join "`n"
+          $vfsContent = $vfsContent.Replace($versionCheckNeedle, $versionCheckReplacement)
+          if (-not $vfsContent.Contains('QVersionNumber::fromString(pluginVersionString)')) {
+            $vfsContent = $vfsContent.Replace(
+              $versionCheckNeedle.Replace("`n", "`r`n"),
+              $versionCheckReplacement.Replace("`n", "`r`n")
+            )
+          }
+          if (-not $vfsContent.Contains('QVersionNumber::fromString(pluginVersionString)')) {
+            throw "Could not patch the VFS plugin version check."
+          }
+          $vfsContent | Set-Content -LiteralPath $vfsFile -Encoding utf8NoBOM
+
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
